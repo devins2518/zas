@@ -2,6 +2,7 @@ const std = @import("std");
 const StructField = std.builtin.Type.StructField;
 const Instruction = @This();
 const Int = std.meta.Int;
+const Parser = std.fmt.Parser;
 comptime name: []const u8 = "",
 comptime pseudo: bool = false,
 /// Total size of the instruction in bits.
@@ -15,6 +16,81 @@ comptime write_operands: []const []const u8 = &.{},
 /// A format string showing how the instruction can be displayed.
 /// TODO: format docs
 comptime parse_style: []const u8 = "",
+
+pub fn parse(
+    comptime InstructionSet: type,
+    buf: []const u8,
+    allocator: std.mem.Allocator,
+) ![]InstructionSet {
+    const ISInfo = @typeInfo(InstructionSet);
+    // Assert that the instruction set is valid
+    comptime {
+        if (ISInfo != .Union or ISInfo.Union.tag_type == null)
+            @compileError(@typeName(InstructionSet) ++ " must be a tagged union!");
+        for (ISInfo.Union.fields) |field| {
+            _ = instructionHasProperForm(field.type);
+        }
+    }
+    const instruction_names = comptime blk: {
+        const CSMType = struct { []const u8 };
+        var names: []const CSMType = &.{};
+        for (ISInfo.Union.fields) |field| {
+            names = names ++ &[_]CSMType{.{field.name}};
+        }
+        break :blk std.ComptimeStringMap(void, names){};
+    };
+    _ = instruction_names;
+
+    var parser = Parser{ .buf = buf };
+    var list = std.ArrayList(InstructionSet).init(allocator);
+
+    while (parser.pos < buf.len) {
+        var could_parse = false;
+        inline for (ISInfo.Union.fields) |instruction| {
+            if (GenParse(instruction.type).parse(parser)) |t| {
+                try list.append(@unionInit(InstructionSet, instruction.name, t));
+                could_parse = true;
+                break;
+            } else |_| {}
+        }
+        if (!could_parse) {
+            return error.CouldNotParse;
+        }
+    }
+    return list.items;
+}
+
+fn GenParse(comptime T: type) type {
+    const type_fields = @typeInfo(T).Struct.fields;
+    const parse_style: []const u8 = @as(T, undefined).parse_style;
+    const ParseState = enum {
+        waiting_for_open,
+        parsing_field,
+    };
+    _ = ParseState;
+    _ = type_fields;
+
+    return struct {
+        pub fn parse(parser: Parser) !T {
+            comptime var style_parser = Parser{ .buf = parse_style };
+            while (style_parser.char()) |c| {
+                if (std.ascii.isWhitespace(c)) {
+                    if (!std.ascii.isWhitespace(parser.buf[parser.pos]))
+                        return error.UnexpectedToken;
+
+                    while (std.ascii.isWhitespace(parser.buf[parser.pos])) {
+                        parser.pos += 1;
+                    }
+                } else if (c == '{') {
+                    const field_name = style_parser.until('}');
+                    _ = field_name;
+                } else if (!parser.maybe(c))
+                    return error.UnexpectedToken;
+            }
+            return undefined;
+        }
+    };
+}
 
 pub fn toBytes(comptime T: type, instruction: T) Int(.unsigned, instruction.bit_size) {
     comptime std.debug.assert(instructionHasProperForm(T));

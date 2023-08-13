@@ -10,6 +10,15 @@ const Register = enum(u5) {
     // zig fmt: on
 };
 
+pub const RiscvInstructions = union(enum) {
+    addi: Addi,
+    slti: Slti,
+    sltiu: Sltiu,
+    xori: Xori,
+    ori: Ori,
+    andi: Andi,
+};
+
 const RiscvInstruction = Instruction.Class(Instruction, struct {
     comptime bit_size: usize = 32,
 });
@@ -44,4 +53,11 @@ test AluIType {
     try std.testing.expect(Instruction.instructionHasProperForm(Addi));
     const i = Addi{ .rd = .x0, .rs1 = .x0, .imm12 = 0 };
     try std.testing.expect(Instruction.toBytes(Addi, i) == 0b00000000000000000000000000010011);
+    try std.testing.expectEqualSlices(
+        RiscvInstructions,
+        &[_]RiscvInstructions{.{ .addi = i }},
+        try Instruction.parse(RiscvInstructions,
+            \\addi x0, x0, 0
+        , std.testing.allocator),
+    );
 }
