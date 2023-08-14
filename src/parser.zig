@@ -189,7 +189,7 @@ const Operand = union(enum) {
     const Index = usize;
 };
 
-test Parser {
+test "Parser - Single instruction" {
     var parser = Parser.init("addi x0, x0, 12\n", std.testing.allocator);
     defer parser.deinit();
     try parser.parse();
@@ -205,5 +205,34 @@ test Parser {
     try std.testing.expectEqualDeep(
         parser.instructions.items,
         @constCast(&[_]Instruction{.{ .op = "addi", .operands = @constCast(&[_]usize{ 0, 1, 2 }), .loc = .{ .start = 0, .end = 4 } }}),
+    );
+}
+
+test "Parser - Multiple instruction" {
+    var parser = Parser.init(
+        \\addi x0, x0, 12
+        \\addi x0, x0, 12
+        \\
+    , std.testing.allocator);
+    defer parser.deinit();
+    try parser.parse();
+
+    try std.testing.expectEqualDeep(
+        parser.operands.items,
+        @constCast(&[_]Operand{
+            .{ .register = "x0" },
+            .{ .register = "x0" },
+            .{ .immediate = 12 },
+            .{ .register = "x0" },
+            .{ .register = "x0" },
+            .{ .immediate = 12 },
+        }),
+    );
+    try std.testing.expectEqualDeep(
+        parser.instructions.items,
+        @constCast(&[_]Instruction{
+            .{ .op = "addi", .operands = @constCast(&[_]usize{ 0, 1, 2 }), .loc = .{ .start = 0, .end = 4 } },
+            .{ .op = "addi", .operands = @constCast(&[_]usize{ 3, 4, 5 }), .loc = .{ .start = 16, .end = 20 } },
+        }),
     );
 }
