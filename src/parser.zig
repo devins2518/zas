@@ -1,9 +1,16 @@
 const std = @import("std");
+const token = @import("token.zig");
 const errors = @import("errors.zig");
 const assert = std.debug.assert;
+const isAlphabetic = std.ascii.isAlphabetic;
+const isAlphanumeric = std.ascii.isAlphanumeric;
+const isDigit = std.ascii.isDigit;
+const isHex = std.ascii.isHex;
+const isWhitespace = std.ascii.isWhitespace;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const ErrorMsg = errors.ErrorMsg;
+const Token = token.Token;
 
 const InnerError = error{ UnexpectedSymbol, UnexpectedOperand, ParseFail };
 
@@ -11,106 +18,188 @@ pub const Parser = struct {
     alloc: Allocator,
     buf: []const u8,
     pos: usize = 0,
-    labels: ArrayListUnmanaged(Label) = .{},
-    operands: ArrayListUnmanaged(Operand) = .{},
-    instructions: ArrayListUnmanaged(Instruction) = .{},
+    start: usize = 0,
+    tokens: ArrayListUnmanaged(Token) = .{},
     err_msg: ?ErrorMsg = null,
 
     pub fn init(buf: []const u8, allocator: Allocator) Parser {
         return Parser{ .alloc = allocator, .buf = buf, .pos = 0 };
     }
 
-    pub fn parse(self: *Parser) !void {
-        const State = enum {
-            start_of_line,
-            instruction_identifier,
-            start_of_operand,
-            end_of_operand,
-            operand_identifier,
-            number,
-        };
+    pub fn nextToken(self: *Parser) !?Token {
+        self.start = self.pos;
+        const curr = self.currChar();
+        const next = self.maybeNext() orelse 0;
 
-        var operand_idx_list = ArrayListUnmanaged(Operand.Index){};
-        defer operand_idx_list.deinit(self.alloc);
-        var state: State = .start_of_line;
-        var start: usize = undefined;
-
-        while (self.pos != self.buf.len) {
-            const c = self.buf[self.pos];
-            switch (state) {
-                .start_of_line => switch (c) {
-                    'a'...'z', 'A'...'Z', '_' => {
-                        state = .instruction_identifier;
-                        start = self.pos;
-                    },
-                    else => if (!std.ascii.isWhitespace(c)) {
-                        return self.fail("Unexpected token: {}", .{c});
-                    } else {
-                        self.pos += 1;
-                    },
-                },
-                .instruction_identifier => if (!std.ascii.isAlphanumeric(c) and c != '_') {
-                    try self.instructions.append(self.alloc, .{
-                        .op = self.buf[start..self.pos],
-                        .operands = &.{},
-                        .loc = .{ .start = start, .end = self.pos },
-                    });
-                    state = .start_of_operand;
-                } else {
+        if (self.currIsComment())
+            return self.parseComment()
+        else {
+            self.pos += 1;
+            if (self.pos == self.buf.len) return null;
+            return switch (curr) {
+                ':' => Token{ .kind = .colon, .src = self.buf[self.start .. self.start + 1] },
+                '+' => Token{ .kind = .plus, .src = self.buf[self.start .. self.start + 1] },
+                '-' => if (next == '>') blk: {
                     self.pos += 1;
-                },
-                .start_of_operand => {
-                    self.untilNonWhitespace() orelse return;
-                    state = if (std.ascii.isDigit(self.buf[self.pos]))
-                        .number
+                    break :blk Token{ .kind = .minus_greater, .src = self.buf[self.start .. self.start + 2] };
+                } else Token{ .kind = .minus, .src = self.buf[self.start .. self.start + 1] },
+                '~' => Token{ .kind = .tilde, .src = self.buf[self.start .. self.start + 1] },
+                '/' => Token{ .kind = .slash, .src = self.buf[self.start .. self.start + 1] },
+                '\\' => Token{ .kind = .backslash, .src = self.buf[self.start .. self.start + 1] },
+                '(' => Token{ .kind = .l_paren, .src = self.buf[self.start .. self.start + 1] },
+                ')' => Token{ .kind = .r_paren, .src = self.buf[self.start .. self.start + 1] },
+                '{' => Token{ .kind = .l_brace, .src = self.buf[self.start .. self.start + 1] },
+                '}' => Token{ .kind = .r_brace, .src = self.buf[self.start .. self.start + 1] },
+                '[' => Token{ .kind = .l_bracket, .src = self.buf[self.start .. self.start + 1] },
+                ']' => Token{ .kind = .r_bracket, .src = self.buf[self.start .. self.start + 1] },
+                '?' => Token{ .kind = .question, .src = self.buf[self.start .. self.start + 1] },
+                '*' => Token{ .kind = .star, .src = self.buf[self.start .. self.start + 1] },
+                '.' => Token{ .kind = .period, .src = self.buf[self.start .. self.start + 1] },
+                ',' => Token{ .kind = .comma, .src = self.buf[self.start .. self.start + 1] },
+                '$' => Token{ .kind = .dollar, .src = self.buf[self.start .. self.start + 1] },
+                '=' => if (next == '=') blk: {
+                    self.pos += 1;
+                    break :blk Token{ .kind = .equal_eq, .src = self.buf[self.start .. self.start + 2] };
+                } else Token{ .kind = .equal, .src = self.buf[self.start .. self.start + 1] },
+                '|' => if (next == '|') blk: {
+                    self.pos += 1;
+                    break :blk Token{ .kind = .pipe_pipe, .src = self.buf[self.start .. self.start + 2] };
+                } else Token{ .kind = .pipe, .src = self.buf[self.start .. self.start + 1] },
+                '^' => Token{ .kind = .caret, .src = self.buf[self.start .. self.start + 1] },
+                '&' => if (next == '&') blk: {
+                    self.pos += 1;
+                    break :blk Token{ .kind = .amp_amp, .src = self.buf[self.start .. self.start + 2] };
+                } else Token{ .kind = .amp, .src = self.buf[self.start .. self.start + 1] },
+                '!' => if (next == '=') blk: {
+                    self.pos += 1;
+                    break :blk Token{ .kind = .exclamation_eq, .src = self.buf[self.start .. self.start + 2] };
+                } else Token{ .kind = .exclamation, .src = self.buf[self.start .. self.start + 1] },
+                '%' => Token{ .kind = .percent, .src = self.buf[self.start .. self.start + 1] },
+                '#' => Token{ .kind = .hash, .src = self.buf[self.start .. self.start + 1] },
+                '<' => if (next == '<') blk: {
+                    self.pos += 1;
+                    break :blk Token{ .kind = .less_less, .src = self.buf[self.start .. self.start + 2] };
+                } else if (next == '=') blk: {
+                    self.pos += 1;
+                    break :blk Token{ .kind = .less_than_eq, .src = self.buf[self.start .. self.start + 2] };
+                } else if (next == '>') blk: {
+                    self.pos += 1;
+                    break :blk Token{ .kind = .less_greater, .src = self.buf[self.start .. self.start + 2] };
+                } else Token{ .kind = .less_than, .src = self.buf[self.start .. self.start + 1] },
+                '>' => if (next == '=') blk: {
+                    self.pos += 1;
+                    break :blk Token{ .kind = .greater_than_eq, .src = self.buf[self.start .. self.start + 2] };
+                } else if (next == '>') blk: {
+                    self.pos += 1;
+                    break :blk Token{ .kind = .greater_greater, .src = self.buf[self.start .. self.start + 2] };
+                } else Token{ .kind = .greater_than, .src = self.buf[self.start .. self.start + 1] },
+                '@' => Token{ .kind = .at, .src = self.buf[self.start .. self.start + 1] },
+                ' ', '\t' => blk: {
+                    break :blk if (self.untilNonWhitespace()) |_|
+                        self.nextToken()
                     else
-                        .operand_identifier;
-                    start = self.pos;
-                    self.pos += 1;
+                        null;
                 },
-                .end_of_operand => {
-                    if (c != '\n') {
-                        try self.expect(',');
-                        state = .start_of_operand;
-                    } else {
-                        if (operand_idx_list.items.len > 0)
-                            self.instructions.items[self.instructions.items.len - 1].operands =
-                                try operand_idx_list.toOwnedSlice(self.alloc);
-                        state = .start_of_line;
-                    }
+                '0'...'9' => self.parseDigit(),
+                else => |c| if (isWhitespace(c))
+                    if (self.untilNonWhitespace()) |_| self.nextToken() else null
+                else if (isAlphabetic(c) or c == '_' or c == '.')
+                    self.parseIdent()
+                else {
+                    try self.fail("Unexpected start to identifier: {c}", .{c});
+                    return Token{ .kind = .err, .src = self.buf[self.start..self.pos] };
                 },
-                .number => {
-                    if (self.pos == start + 1 and !std.ascii.isDigit(c)) {
-                        switch (c) {
-                            'b', 'B', 'o', 'O', 'x', 'X' => {},
-                            else => return self.fail("Unknown numeric prefix: '{}'", .{c}),
-                        }
-                        self.pos += 1;
-                    } else if (!std.ascii.isDigit(c)) {
-                        const number = try std.fmt.parseInt(i64, self.buf[start..self.pos], 0);
-                        const operand = .{ .immediate = number };
-                        try operand_idx_list.append(self.alloc, try self.appendOperand(operand));
-                        state = .end_of_operand;
-                    } else {
-                        self.pos += 1;
-                    }
-                },
-                .operand_identifier => if (!std.ascii.isAlphanumeric(c) and c != '_') {
-                    const identfier = self.buf[start..self.pos];
-                    const operand = .{ .register = identfier };
-                    try operand_idx_list.append(self.alloc, try self.appendOperand(operand));
-                    state = .end_of_operand;
-                } else {
-                    self.pos += 1;
-                },
-            }
+            };
         }
     }
 
-    fn appendOperand(self: *Parser, operand: Operand) !usize {
-        const pos = self.operands.items.len;
-        try self.operands.append(self.alloc, operand);
-        return pos;
+    pub fn parse(self: *Parser) !void {
+        while (try self.nextToken()) |t| {
+            try self.tokens.append(self.alloc, t);
+        }
+    }
+
+    fn currChar(self: *const Parser) u8 {
+        return self.buf[self.pos];
+    }
+
+    fn maybeNext(self: *const Parser) ?u8 {
+        const idx = self.pos + 1;
+        return if (idx + 1 < self.buf.len) self.buf[idx] else null;
+    }
+
+    fn parseComment(self: *Parser) Token {
+        assert(self.currIsComment());
+        const end = std.mem.indexOfScalar(u8, self.buf[self.pos..], '\n') orelse self.buf.len - 1;
+        self.pos = end;
+        return Token{ .kind = .comment, .src = self.buf[self.start..end] };
+    }
+
+    fn isIdentChar(self: *Parser) bool {
+        const c = self.currChar();
+        return isAlphanumeric(c) or c == '_' or c == '.';
+    }
+
+    fn parseIdent(self: *Parser) Token {
+        while (self.isIdentChar()) self.pos += 1;
+
+        return Token{ .kind = .ident, .src = self.buf[self.start..self.pos] };
+    }
+
+    // Can be:
+    //  label: [0-9]*:
+    //  forward/backward label: [0-9]*[fb]:
+    //  decimal literal: [1-9][0-9]*
+    //  binary literal: 0b[01]+
+    //  octal literal: 0o[0-7]+
+    //  hex literal: 0x[0-F]+
+    fn parseDigit(self: *Parser) !?Token {
+        const c = self.currChar();
+        if (self.buf[self.pos - 1] != '0') { // decimal literal
+            while (isDigit(self.currChar())) {
+                self.pos += 1;
+            }
+            return Token{ .kind = .integer, .src = self.buf[self.start..self.pos] };
+        } else if (c == 'b' or c == 'B') { // binary literal
+            self.pos += 1;
+            // Handle `jmp 0b` case
+            if (!isDigit(self.currChar())) {
+                self.pos -= 1;
+                return Token{ .kind = .label, .src = self.buf[self.start..self.pos] };
+            }
+            const start = self.pos;
+            while (self.currChar() == '0' or self.currChar() == '1') {
+                self.pos += 1;
+            }
+
+            return if (self.pos == start) blk: {
+                try self.fail("Binary literal must have at least one digit!", .{});
+                break :blk Token{ .kind = .err, .src = self.buf[self.start..self.pos] };
+            } else Token{ .kind = .integer, .src = self.buf[self.start..self.pos] };
+        } else if (c == 'x' or c == 'X') { // hex literal
+            const start = self.pos;
+            while (isHex(self.currChar())) {
+                self.pos += 1;
+            }
+            return if (self.pos == start) blk: {
+                try self.fail("Hex literal must have at least one digit!", .{});
+                break :blk Token{ .kind = .err, .src = self.buf[self.start..self.pos] };
+            } else Token{ .kind = .integer, .src = self.buf[self.start..self.pos] };
+        } else if (c == 'o' or c == 'O') {
+            const start = self.pos;
+            while (isOctal(self.currChar())) {
+                self.pos += 1;
+            }
+            return if (self.pos == start) blk: {
+                try self.fail("Octal literal must have at least one digit!", .{});
+                break :blk Token{ .kind = .err, .src = self.buf[self.start..self.pos] };
+            } else Token{ .kind = .integer, .src = self.buf[self.start..self.pos] };
+        }
+        return Token{ .kind = .err, .src = self.buf[self.start..self.pos] };
+    }
+
+    fn currIsComment(self: *const Parser) bool {
+        return self.buf[self.pos] == ';';
     }
 
     fn untilNonWhitespace(self: *Parser) ?void {
@@ -152,14 +241,17 @@ pub const Parser = struct {
     }
 
     pub fn deinit(self: *Parser) void {
-        self.operands.deinit(self.alloc);
-        self.labels.deinit(self.alloc);
-        for (self.instructions.items) |instr| {
-            if (instr.operands.len > 0) self.alloc.free(instr.operands);
-        }
-        self.instructions.deinit(self.alloc);
+        self.tokens.deinit(self.alloc);
+        if (self.err_msg) |err| err.destroy(self.alloc);
     }
 };
+
+fn isOctal(c: u8) bool {
+    return switch (c) {
+        '0'...'7' => true,
+        else => false,
+    };
+}
 
 const Loc = struct {
     start: usize,
@@ -195,16 +287,15 @@ test "Parser - Single instruction" {
     try parser.parse();
 
     try std.testing.expectEqualDeep(
-        parser.operands.items,
-        @constCast(&[_]Operand{
-            .{ .register = "x0" },
-            .{ .register = "x0" },
-            .{ .immediate = 12 },
+        parser.tokens.items,
+        @constCast(&[_]Token{
+            .{ .kind = .ident, .src = "addi" },
+            .{ .kind = .ident, .src = "x0" },
+            .{ .kind = .comma, .src = "," },
+            .{ .kind = .ident, .src = "x0" },
+            .{ .kind = .comma, .src = "," },
+            .{ .kind = .integer, .src = "12" },
         }),
-    );
-    try std.testing.expectEqualDeep(
-        parser.instructions.items,
-        @constCast(&[_]Instruction{.{ .op = "addi", .operands = @constCast(&[_]usize{ 0, 1, 2 }), .loc = .{ .start = 0, .end = 4 } }}),
     );
 }
 
@@ -218,21 +309,20 @@ test "Parser - Multiple instruction" {
     try parser.parse();
 
     try std.testing.expectEqualDeep(
-        parser.operands.items,
-        @constCast(&[_]Operand{
-            .{ .register = "x0" },
-            .{ .register = "x0" },
-            .{ .immediate = 12 },
-            .{ .register = "x0" },
-            .{ .register = "x0" },
-            .{ .immediate = 12 },
-        }),
-    );
-    try std.testing.expectEqualDeep(
-        parser.instructions.items,
-        @constCast(&[_]Instruction{
-            .{ .op = "addi", .operands = @constCast(&[_]usize{ 0, 1, 2 }), .loc = .{ .start = 0, .end = 4 } },
-            .{ .op = "addi", .operands = @constCast(&[_]usize{ 3, 4, 5 }), .loc = .{ .start = 16, .end = 20 } },
+        parser.tokens.items,
+        @constCast(&[_]Token{
+            .{ .kind = .ident, .src = "addi" },
+            .{ .kind = .ident, .src = "x0" },
+            .{ .kind = .comma, .src = "," },
+            .{ .kind = .ident, .src = "x0" },
+            .{ .kind = .comma, .src = "," },
+            .{ .kind = .integer, .src = "12" },
+            .{ .kind = .ident, .src = "addi" },
+            .{ .kind = .ident, .src = "x0" },
+            .{ .kind = .comma, .src = "," },
+            .{ .kind = .ident, .src = "x0" },
+            .{ .kind = .comma, .src = "," },
+            .{ .kind = .integer, .src = "12" },
         }),
     );
 }

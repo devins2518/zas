@@ -11,8 +11,7 @@ pub const ErrorMsg = struct {
 
     /// Assumes the ErrorMsg struct and msg were both allocated with `gpa`,
     /// as well as all notes.
-    pub fn destroy(err_msg: *ErrorMsg, gpa: Allocator) void {
-        err_msg.deinit(gpa);
-        gpa.destroy(err_msg);
+    pub fn destroy(err_msg: *const ErrorMsg, gpa: Allocator) void {
+        gpa.free(err_msg.msg);
     }
 };
