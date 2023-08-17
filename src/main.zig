@@ -1,5 +1,5 @@
 const std = @import("std");
-pub const Parser = @import("parser.zig").Parser;
+pub const Parser = @import("riscv.zig").RiscvParser;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .stack_trace_frames = 10 }){};
@@ -15,15 +15,17 @@ pub fn main() !void {
     const file_contents = try file.readToEndAlloc(allocator, std.math.maxInt(usize));
     defer allocator.free(file_contents);
 
-    // var parser = Parser.init(file_contents, allocator);
-    // defer parser.deinit();
-    // try parser.parse();
+    var parser = Parser.init(file_contents, allocator);
+    defer parser.deinit();
+    try parser.parse();
 
-    // for (parser.tokens.items) |i| {
-    //     std.debug.print("{} ", .{i});
-    // }
+    for (parser.tokenizer.tokens.items) |i| {
+        std.debug.print("{} ", .{i});
+    }
 }
 
 test {
+    _ = @import("Instruction.zig");
+    _ = @import("riscv.zig");
     std.testing.refAllDeclsRecursive(@This());
 }
