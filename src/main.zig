@@ -15,13 +15,13 @@ pub fn main() !void {
     const file_contents = try file.readToEndAlloc(allocator, std.math.maxInt(usize));
     defer allocator.free(file_contents);
 
-    var parser = Parser.init(file_contents, allocator);
-    defer parser.deinit();
-    try parser.parse();
+    // var parser = Parser.init(file_contents, allocator);
+    // defer parser.deinit();
+    // try parser.parse();
 
-    for (parser.tokens.items) |i| {
-        std.debug.print("{} ", .{i});
-    }
+    // for (parser.tokens.items) |i| {
+    //     std.debug.print("{} ", .{i});
+    // }
 }
 
 test {
