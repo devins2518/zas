@@ -7,8 +7,9 @@ const ComptimeStringMap = std.ComptimeStringMap;
 const ErrorMsg = errors.ErrorMsg;
 const Instruction = @import("Instruction.zig");
 const Tokenizer = token.Tokenizer;
+const TokenKind = token.TokenKind;
 
-const InnerError = error{ UnexpectedSymbol, UnexpectedOperand, ParseFail };
+const InnerError = ErrorMsg.Error || error{ UnexpectedSymbol, UnexpectedOperand, ParseFail };
 
 pub fn Parser(comptime instruction_set: []const type) type {
     for (instruction_set) |instruction| assert(Instruction.instructionHasProperForm(instruction));
@@ -53,23 +54,73 @@ pub fn Parser(comptime instruction_set: []const type) type {
                     return self.fail("Unexpected token: {s}", .{first_token.src});
                 token_idx += 1;
 
-                if (instruction_names.get(instruction_mneumonic)) |style| {
-                    // TODO: style is parsed at runtime
-                    const style_idx = (std.mem.indexOfScalar(u8, style, '}') orelse
-                        return self.fail("Could not parse parse_style: {s}", .{style})) + 1;
+                var instruction_found = false;
+                // TODO: set up comptime string map with function pointer payload for runtime call
+                inline for (instruction_set) |Instr| {
+                    var i: Instr = undefined;
+                    if (std.mem.eql(u8, i.name, instruction_mneumonic)) {
+                        const style = i.parse_style;
+                        comptime var style_idx = (std.mem.indexOfScalar(u8, style, '}') orelse
+                            self.fail("Expected closing '}' in: {s}", .{style})) + 1;
+                        inline while (style_idx < style.len) {
+                            switch (style[style_idx]) {
+                                ' ' => {
+                                    _ = try self.expectToken(&token_idx, .space);
+                                    style_idx += 1;
+                                },
+                                ',' => {
+                                    _ = try self.expectToken(&token_idx, .comma);
+                                    style_idx += 1;
+                                },
+                                '{' => if (style[style_idx + 1] == '{') {
+                                    _ = try self.expectToken(&token_idx, .l_brace);
+                                    style_idx += 1;
+                                } else {
+                                    const end = (comptime std.mem.indexOfScalarPos(u8, style, style_idx, '}') orelse
+                                        return self.fail("Expected closing '}' in: {s}", .{style}));
 
-                    while (style_idx < style.len) {
-                        const kind = switch (style[style_idx]) {
-                            ' ' => .space,
-                            else => {},
-                        };
-                        _ = kind;
+                                    const field_name = style[style_idx + 1 .. end];
+                                    const FieldType = @TypeOf(@field(i, field_name));
+                                    const field_type_info = @typeInfo(FieldType);
+
+                                    switch (field_type_info) {
+                                        .Enum => {
+                                            const variant = try self.expectToken(&token_idx, .ident);
+                                            if (std.meta.stringToEnum(FieldType, variant)) |e|
+                                                @field(i, field_name) = e
+                                            else
+                                                return self.fail("Unknown {s} variant: {s}", .{ field_name, variant });
+                                        },
+                                        else => unreachable,
+                                    }
+
+                                    style_idx = end + 1;
+                                },
+                                else => unreachable,
+                            }
+                        }
+
+                        try self.binary.append(self.alloc, Instruction.toBytes(Instr, i));
                     }
-                } else try self.fail("Unknown instruction: {s}", .{instruction_mneumonic});
+                }
+                if (!instruction_found) return self.fail("Unknown instruction: {s}", .{instruction_mneumonic});
             }
         }
 
-        fn fail(self: *Self, comptime format: []const u8, args: anytype) !void {
+        pub fn report(self: *Self) void {
+            assert(self.err_msg != null);
+            std.debug.print("{s}\n", .{self.err_msg.?.msg});
+        }
+
+        fn expectToken(self: *Self, token_idx: *usize, kind: TokenKind) ![]const u8 {
+            const t = self.tokenizer.tokens.items[token_idx.*];
+            if (t.kind == kind) {
+                token_idx.* += 1;
+                return t.src;
+            } else return self.fail("Unexpected token: {s}", .{t.src});
+        }
+
+        fn fail(self: *Self, comptime format: []const u8, args: anytype) InnerError {
             @setCold(true);
             assert(self.err_msg == null);
             self.err_msg = try ErrorMsg.init(self.alloc, format, args);

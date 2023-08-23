@@ -97,9 +97,10 @@ pub const Tokenizer = struct {
                         null;
                 },
                 '0'...'9' => self.parseDigit(),
-                else => |c| if (isWhitespace(c))
-                    if (self.untilNonWhitespace()) |_| self.nextToken() else null
-                else if (isAlphabetic(c) or c == '_' or c == '.')
+                else => |c| if (isWhitespace(c)) blk: {
+                    _ = self.untilNonWhitespace();
+                    break :blk Token{ .kind = .space, .src = self.buf[self.start..self.pos] };
+                } else if (isAlphabetic(c) or c == '_' or c == '.')
                     self.parseIdent()
                 else {
                     try self.fail("Unexpected start to identifier: {c}", .{c});
@@ -340,6 +341,7 @@ test "Tokenizer - Multiple instruction" {
             .{ .kind = .ident, .src = "x0" },
             .{ .kind = .comma, .src = "," },
             .{ .kind = .integer, .src = "12" },
+            .{ .kind = .space, .src = "\n" },
             .{ .kind = .ident, .src = "addi" },
             .{ .kind = .ident, .src = "x0" },
             .{ .kind = .comma, .src = "," },

@@ -17,7 +17,10 @@ pub fn main() !void {
 
     var parser = Parser.init(file_contents, allocator);
     defer parser.deinit();
-    try parser.parse();
+    parser.parse() catch |e| {
+        parser.report();
+        return e;
+    };
 
     for (parser.tokenizer.tokens.items) |i| {
         std.debug.print("{} ", .{i});

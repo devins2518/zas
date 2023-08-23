@@ -3,6 +3,8 @@ const Allocator = std.mem.Allocator;
 
 // Taken from Zig compiler internals
 pub const ErrorMsg = struct {
+    pub const Error = std.fmt.AllocPrintError;
+
     msg: []const u8,
 
     pub fn init(gpa: Allocator, comptime format: []const u8, args: anytype) !ErrorMsg {
