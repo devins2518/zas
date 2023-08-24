@@ -23,91 +23,168 @@ pub const Tokenizer = struct {
     }
 
     pub fn nextToken(self: *Tokenizer) !?Token {
+        if (self.pos >= self.buf.len) return null;
+
         self.start = self.pos;
         const curr = self.currChar();
         const next = self.maybeNext() orelse 0;
 
-        if (self.currIsComment())
-            return self.parseComment()
-        else {
-            self.pos += 1;
-            if (self.pos == self.buf.len) return null;
-            return switch (curr) {
-                ':' => Token{ .kind = .colon, .src = self.buf[self.start .. self.start + 1] },
-                '+' => Token{ .kind = .plus, .src = self.buf[self.start .. self.start + 1] },
-                '-' => if (next == '>') blk: {
-                    self.pos += 1;
-                    break :blk Token{ .kind = .minus_greater, .src = self.buf[self.start .. self.start + 2] };
-                } else Token{ .kind = .minus, .src = self.buf[self.start .. self.start + 1] },
-                '~' => Token{ .kind = .tilde, .src = self.buf[self.start .. self.start + 1] },
-                '/' => Token{ .kind = .slash, .src = self.buf[self.start .. self.start + 1] },
-                '\\' => Token{ .kind = .backslash, .src = self.buf[self.start .. self.start + 1] },
-                '(' => Token{ .kind = .l_paren, .src = self.buf[self.start .. self.start + 1] },
-                ')' => Token{ .kind = .r_paren, .src = self.buf[self.start .. self.start + 1] },
-                '{' => Token{ .kind = .l_brace, .src = self.buf[self.start .. self.start + 1] },
-                '}' => Token{ .kind = .r_brace, .src = self.buf[self.start .. self.start + 1] },
-                '[' => Token{ .kind = .l_bracket, .src = self.buf[self.start .. self.start + 1] },
-                ']' => Token{ .kind = .r_bracket, .src = self.buf[self.start .. self.start + 1] },
-                '?' => Token{ .kind = .question, .src = self.buf[self.start .. self.start + 1] },
-                '*' => Token{ .kind = .star, .src = self.buf[self.start .. self.start + 1] },
-                '.' => Token{ .kind = .period, .src = self.buf[self.start .. self.start + 1] },
-                ',' => Token{ .kind = .comma, .src = self.buf[self.start .. self.start + 1] },
-                '$' => Token{ .kind = .dollar, .src = self.buf[self.start .. self.start + 1] },
-                '=' => if (next == '=') blk: {
-                    self.pos += 1;
-                    break :blk Token{ .kind = .equal_eq, .src = self.buf[self.start .. self.start + 2] };
-                } else Token{ .kind = .equal, .src = self.buf[self.start .. self.start + 1] },
-                '|' => if (next == '|') blk: {
-                    self.pos += 1;
-                    break :blk Token{ .kind = .pipe_pipe, .src = self.buf[self.start .. self.start + 2] };
-                } else Token{ .kind = .pipe, .src = self.buf[self.start .. self.start + 1] },
-                '^' => Token{ .kind = .caret, .src = self.buf[self.start .. self.start + 1] },
-                '&' => if (next == '&') blk: {
-                    self.pos += 1;
-                    break :blk Token{ .kind = .amp_amp, .src = self.buf[self.start .. self.start + 2] };
-                } else Token{ .kind = .amp, .src = self.buf[self.start .. self.start + 1] },
-                '!' => if (next == '=') blk: {
-                    self.pos += 1;
-                    break :blk Token{ .kind = .exclamation_eq, .src = self.buf[self.start .. self.start + 2] };
-                } else Token{ .kind = .exclamation, .src = self.buf[self.start .. self.start + 1] },
-                '%' => Token{ .kind = .percent, .src = self.buf[self.start .. self.start + 1] },
-                '#' => Token{ .kind = .hash, .src = self.buf[self.start .. self.start + 1] },
-                '<' => if (next == '<') blk: {
-                    self.pos += 1;
-                    break :blk Token{ .kind = .less_less, .src = self.buf[self.start .. self.start + 2] };
-                } else if (next == '=') blk: {
-                    self.pos += 1;
-                    break :blk Token{ .kind = .less_than_eq, .src = self.buf[self.start .. self.start + 2] };
-                } else if (next == '>') blk: {
-                    self.pos += 1;
-                    break :blk Token{ .kind = .less_greater, .src = self.buf[self.start .. self.start + 2] };
-                } else Token{ .kind = .less_than, .src = self.buf[self.start .. self.start + 1] },
-                '>' => if (next == '=') blk: {
-                    self.pos += 1;
-                    break :blk Token{ .kind = .greater_than_eq, .src = self.buf[self.start .. self.start + 2] };
-                } else if (next == '>') blk: {
-                    self.pos += 1;
-                    break :blk Token{ .kind = .greater_greater, .src = self.buf[self.start .. self.start + 2] };
-                } else Token{ .kind = .greater_than, .src = self.buf[self.start .. self.start + 1] },
-                '@' => Token{ .kind = .at, .src = self.buf[self.start .. self.start + 1] },
-                ' ', '\t' => blk: {
-                    break :blk if (self.untilNonWhitespace()) |_|
-                        self.nextToken()
-                    else
-                        null;
-                },
-                '0'...'9' => self.parseDigit(),
-                else => |c| if (isWhitespace(c)) blk: {
-                    _ = self.untilNonWhitespace();
-                    break :blk Token{ .kind = .space, .src = self.buf[self.start..self.pos] };
-                } else if (isAlphabetic(c) or c == '_' or c == '.')
-                    self.parseIdent()
-                else {
-                    try self.fail("Unexpected start to identifier: {c}", .{c});
-                    return Token{ .kind = .err, .src = self.buf[self.start..self.pos] };
-                },
-            };
-        }
+        return if (self.currIsComment())
+            self.parseComment()
+        else if (self.pos == self.buf.len) null else switch (curr) {
+            ':' => blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .colon, .src = self.buf[self.start .. self.start + 1] };
+            },
+            '+' => blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .plus, .src = self.buf[self.start .. self.start + 1] };
+            },
+            '-' => if (next == '>') blk: {
+                self.pos += 2;
+                break :blk Token{ .kind = .minus_greater, .src = self.buf[self.start .. self.start + 2] };
+            } else blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .minus, .src = self.buf[self.start .. self.start + 1] };
+            },
+            '~' => blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .tilde, .src = self.buf[self.start .. self.start + 1] };
+            },
+            '/' => blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .slash, .src = self.buf[self.start .. self.start + 1] };
+            },
+            '\\' => blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .backslash, .src = self.buf[self.start .. self.start + 1] };
+            },
+            '(' => blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .l_paren, .src = self.buf[self.start .. self.start + 1] };
+            },
+            ')' => blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .r_paren, .src = self.buf[self.start .. self.start + 1] };
+            },
+            '{' => blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .l_brace, .src = self.buf[self.start .. self.start + 1] };
+            },
+            '}' => blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .r_brace, .src = self.buf[self.start .. self.start + 1] };
+            },
+            '[' => blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .l_bracket, .src = self.buf[self.start .. self.start + 1] };
+            },
+            ']' => blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .r_bracket, .src = self.buf[self.start .. self.start + 1] };
+            },
+            '?' => blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .question, .src = self.buf[self.start .. self.start + 1] };
+            },
+            '*' => blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .star, .src = self.buf[self.start .. self.start + 1] };
+            },
+            '.' => blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .period, .src = self.buf[self.start .. self.start + 1] };
+            },
+            ',' => blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .comma, .src = self.buf[self.start .. self.start + 1] };
+            },
+            '$' => blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .dollar, .src = self.buf[self.start .. self.start + 1] };
+            },
+            '=' => if (next == '=') blk: {
+                self.pos += 2;
+                break :blk Token{ .kind = .equal_eq, .src = self.buf[self.start .. self.start + 2] };
+            } else blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .equal, .src = self.buf[self.start .. self.start + 1] };
+            },
+            '|' => if (next == '|') blk: {
+                self.pos += 2;
+                break :blk Token{ .kind = .pipe_pipe, .src = self.buf[self.start .. self.start + 2] };
+            } else blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .pipe, .src = self.buf[self.start .. self.start + 1] };
+            },
+            '^' => blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .caret, .src = self.buf[self.start .. self.start + 1] };
+            },
+            '&' => if (next == '&') blk: {
+                self.pos += 2;
+                break :blk Token{ .kind = .amp_amp, .src = self.buf[self.start .. self.start + 2] };
+            } else blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .amp, .src = self.buf[self.start .. self.start + 1] };
+            },
+            '!' => if (next == '=') blk: {
+                self.pos += 2;
+                break :blk Token{ .kind = .exclamation_eq, .src = self.buf[self.start .. self.start + 2] };
+            } else blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .exclamation, .src = self.buf[self.start .. self.start + 1] };
+            },
+            '%' => blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .percent, .src = self.buf[self.start .. self.start + 1] };
+            },
+            '#' => blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .hash, .src = self.buf[self.start .. self.start + 1] };
+            },
+            '<' => if (next == '<') blk: {
+                self.pos += 2;
+                break :blk Token{ .kind = .less_less, .src = self.buf[self.start .. self.start + 2] };
+            } else if (next == '=') blk: {
+                self.pos += 2;
+                break :blk Token{ .kind = .less_than_eq, .src = self.buf[self.start .. self.start + 2] };
+            } else if (next == '>') blk: {
+                self.pos += 2;
+                break :blk Token{ .kind = .less_greater, .src = self.buf[self.start .. self.start + 2] };
+            } else blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .less_than, .src = self.buf[self.start .. self.start + 1] };
+            },
+            '>' => if (next == '=') blk: {
+                self.pos += 2;
+                break :blk Token{ .kind = .greater_than_eq, .src = self.buf[self.start .. self.start + 2] };
+            } else if (next == '>') blk: {
+                self.pos += 2;
+                break :blk Token{ .kind = .greater_greater, .src = self.buf[self.start .. self.start + 2] };
+            } else blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .greater_than, .src = self.buf[self.start .. self.start + 1] };
+            },
+            '@' => blk: {
+                self.pos += 1;
+                break :blk Token{ .kind = .at, .src = self.buf[self.start .. self.start + 1] };
+            },
+            ' ', '\t', '\n' => if (self.untilNonWhitespace()) |_|
+                Token{ .kind = .space, .src = self.buf[self.start..self.pos] }
+            else
+                null,
+            '0'...'9' => self.parseDigit(),
+            else => |c| if (isWhitespace(c)) blk: {
+                _ = self.untilNonWhitespace();
+                break :blk Token{ .kind = .space, .src = self.buf[self.start..self.pos] };
+            } else if (isAlphabetic(c) or c == '_' or c == '.')
+                self.parseIdent()
+            else {
+                try self.fail("Unexpected start to identifier: {c}", .{c});
+                return Token{ .kind = .err, .src = self.buf[self.start..self.pos] };
+            },
+        };
     }
 
     pub fn tokenize(self: *Tokenizer) !void {
@@ -314,10 +391,13 @@ test "Tokenizer - Single instruction" {
         tokenizer.tokens.items,
         @constCast(&[_]Token{
             .{ .kind = .ident, .src = "addi" },
+            .{ .kind = .space, .src = " " },
             .{ .kind = .ident, .src = "x0" },
             .{ .kind = .comma, .src = "," },
+            .{ .kind = .space, .src = " " },
             .{ .kind = .ident, .src = "x0" },
             .{ .kind = .comma, .src = "," },
+            .{ .kind = .space, .src = " " },
             .{ .kind = .integer, .src = "12" },
         }),
     );
@@ -336,17 +416,23 @@ test "Tokenizer - Multiple instruction" {
         tokenizer.tokens.items,
         @constCast(&[_]Token{
             .{ .kind = .ident, .src = "addi" },
+            .{ .kind = .space, .src = " " },
             .{ .kind = .ident, .src = "x0" },
             .{ .kind = .comma, .src = "," },
+            .{ .kind = .space, .src = " " },
             .{ .kind = .ident, .src = "x0" },
             .{ .kind = .comma, .src = "," },
+            .{ .kind = .space, .src = " " },
             .{ .kind = .integer, .src = "12" },
             .{ .kind = .space, .src = "\n" },
             .{ .kind = .ident, .src = "addi" },
+            .{ .kind = .space, .src = " " },
             .{ .kind = .ident, .src = "x0" },
             .{ .kind = .comma, .src = "," },
+            .{ .kind = .space, .src = " " },
             .{ .kind = .ident, .src = "x0" },
             .{ .kind = .comma, .src = "," },
+            .{ .kind = .space, .src = " " },
             .{ .kind = .integer, .src = "12" },
         }),
     );
