@@ -52,20 +52,18 @@ pub fn Parser(comptime instruction_set: []const type) type {
                     first_token.src
                 else
                     return self.fail("Unexpected token: {s}", .{first_token.src});
-                token_idx += 1;
 
                 var instruction_found = false;
                 // TODO: set up comptime string map with function pointer payload for runtime call
                 inline for (instruction_set) |Instr| {
                     var i: Instr = undefined;
                     if (std.mem.eql(u8, i.name, instruction_mneumonic)) {
+                        instruction_found = true;
                         const style = i.parse_style;
-                        comptime var style_idx = (std.mem.indexOfScalar(u8, style, '}') orelse
-                            self.fail("Expected closing '}' in: {s}", .{style})) + 1;
+                        comptime var style_idx = 0;
                         inline while (style_idx < style.len) {
                             switch (style[style_idx]) {
                                 ' ' => {
-                                    _ = try self.expectToken(&token_idx, .space);
                                     style_idx += 1;
                                 },
                                 ',' => {
@@ -76,8 +74,8 @@ pub fn Parser(comptime instruction_set: []const type) type {
                                     _ = try self.expectToken(&token_idx, .l_brace);
                                     style_idx += 1;
                                 } else {
-                                    const end = (comptime std.mem.indexOfScalarPos(u8, style, style_idx, '}') orelse
-                                        return self.fail("Expected closing '}' in: {s}", .{style}));
+                                    const end = comptime std.mem.indexOfScalarPos(u8, style, style_idx, '}') orelse
+                                        @compileError("Expected closing '}' in: " ++ style[style_idx]);
 
                                     const field_name = style[style_idx + 1 .. end];
                                     const FieldType = @TypeOf(@field(i, field_name));
@@ -90,6 +88,28 @@ pub fn Parser(comptime instruction_set: []const type) type {
                                                 @field(i, field_name) = e
                                             else
                                                 return self.fail("Unknown {s} variant: {s}", .{ field_name, variant });
+                                        },
+                                        .Pointer => |ptr_info| {
+                                            if (ptr_info.size != .Many and ptr_info.child != u8)
+                                                @compileError("Unable to parse pointer type " ++ @typeName(FieldType));
+
+                                            const ident = try self.expectToken(&token_idx, .ident);
+                                            if (!std.mem.eql(u8, ident, @field(i, field_name)))
+                                                return self.fail("Expected \"{s}\", found \"{s}\"!", .{ @field(i, field_name), ident });
+                                        },
+                                        .Int => |int_info| {
+                                            const int_string = try self.expectToken(&token_idx, .integer);
+                                            const int = std.fmt.parseInt(FieldType, int_string, 0) catch |e| switch (e) {
+                                                error.Overflow => return self.fail(
+                                                    "{s} does not fit into a {} width integer (range [{}..{}])",
+                                                    .{ int_string, int_info.bits, std.math.minInt(FieldType), std.math.maxInt(FieldType) },
+                                                ),
+                                                error.InvalidCharacter => return self.fail(
+                                                    "Unexpected character in integer, this is a bug in the assembly tokenizer! Source: \"{s}\"",
+                                                    .{int_string},
+                                                ),
+                                            };
+                                            @field(i, field_name) = int;
                                         },
                                         else => unreachable,
                                     }
@@ -117,7 +137,7 @@ pub fn Parser(comptime instruction_set: []const type) type {
             if (t.kind == kind) {
                 token_idx.* += 1;
                 return t.src;
-            } else return self.fail("Unexpected token: {s}", .{t.src});
+            } else return self.fail("Unexpected parser token of kind {s}: {s}. Expected {s}.", .{ @tagName(t.kind), t.src, @tagName(kind) });
         }
 
         fn fail(self: *Self, comptime format: []const u8, args: anytype) InnerError {
