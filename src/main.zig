@@ -18,13 +18,15 @@ pub fn main() !void {
     var parser = Parser.init(file_contents, allocator);
     defer parser.deinit();
     parser.parse() catch |e| {
+        for (parser.tokenizer.tokens.items) |i| {
+            std.debug.print("{}\n", .{i});
+        }
+
         parser.report();
         return e;
     };
 
-    for (parser.tokenizer.tokens.items) |i| {
-        std.debug.print("{} ", .{i});
-    }
+    try std.testing.expectEqualSlices(u32, parser.binary.items, &[_]u32{0b00000000110000000000000000010011});
 }
 
 test {

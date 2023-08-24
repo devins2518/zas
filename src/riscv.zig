@@ -53,6 +53,6 @@ const Andi = CreateAluIType("andi", 0b111);
 
 test AluIType {
     try std.testing.expect(Instruction.instructionHasProperForm(Addi));
-    const i = Addi{ .rd = .x0, .rs1 = .x0, .imm12 = 0 };
-    try std.testing.expect(Instruction.toBytes(Addi, i) == 0b00000000000000000000000000010011);
+    const i = Addi{ .rd = .x0, .rs1 = .x0, .imm12 = 12 };
+    try std.testing.expect(Instruction.toBytes(Addi, i) == 0b00000000110000000000000000010011);
 }
