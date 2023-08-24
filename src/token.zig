@@ -171,14 +171,11 @@ pub const Tokenizer = struct {
                 break :blk Token{ .kind = .at, .src = self.buf[self.start .. self.start + 1] };
             },
             ' ', '\t', '\n' => if (self.untilNonWhitespace()) |_|
-                Token{ .kind = .space, .src = self.buf[self.start..self.pos] }
+                self.nextToken()
             else
                 null,
             '0'...'9' => self.parseDigit(),
-            else => |c| if (isWhitespace(c)) blk: {
-                _ = self.untilNonWhitespace();
-                break :blk Token{ .kind = .space, .src = self.buf[self.start..self.pos] };
-            } else if (isAlphabetic(c) or c == '_' or c == '.')
+            else => |c| if (isAlphabetic(c) or c == '_' or c == '.')
                 self.parseIdent()
             else {
                 try self.fail("Unexpected start to identifier: {c}", .{c});
@@ -325,13 +322,11 @@ pub const TokenKind = enum {
     ident,
     string,
     integer,
-    big_integer,
     comment,
     directive,
     label,
     end_of_statement,
     colon, // :
-    space, // ' '
     plus, // +
     minus, // -
     tilde, // ~
@@ -391,13 +386,10 @@ test "Tokenizer - Single instruction" {
         tokenizer.tokens.items,
         @constCast(&[_]Token{
             .{ .kind = .ident, .src = "addi" },
-            .{ .kind = .space, .src = " " },
             .{ .kind = .ident, .src = "x0" },
             .{ .kind = .comma, .src = "," },
-            .{ .kind = .space, .src = " " },
             .{ .kind = .ident, .src = "x0" },
             .{ .kind = .comma, .src = "," },
-            .{ .kind = .space, .src = " " },
             .{ .kind = .integer, .src = "12" },
         }),
     );
@@ -413,26 +405,20 @@ test "Tokenizer - Multiple instruction" {
     try tokenizer.tokenize();
 
     try std.testing.expectEqualDeep(
+        // TODO: end of statement token which is newline
         tokenizer.tokens.items,
         @constCast(&[_]Token{
             .{ .kind = .ident, .src = "addi" },
-            .{ .kind = .space, .src = " " },
             .{ .kind = .ident, .src = "x0" },
             .{ .kind = .comma, .src = "," },
-            .{ .kind = .space, .src = " " },
             .{ .kind = .ident, .src = "x0" },
             .{ .kind = .comma, .src = "," },
-            .{ .kind = .space, .src = " " },
             .{ .kind = .integer, .src = "12" },
-            .{ .kind = .space, .src = "\n" },
             .{ .kind = .ident, .src = "addi" },
-            .{ .kind = .space, .src = " " },
             .{ .kind = .ident, .src = "x0" },
             .{ .kind = .comma, .src = "," },
-            .{ .kind = .space, .src = " " },
             .{ .kind = .ident, .src = "x0" },
             .{ .kind = .comma, .src = "," },
-            .{ .kind = .space, .src = " " },
             .{ .kind = .integer, .src = "12" },
         }),
     );
