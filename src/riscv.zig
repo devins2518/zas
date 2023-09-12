@@ -105,7 +105,11 @@ test RiscvParser {
         , std.testing.allocator);
         defer p.deinit();
         try p.parse();
-        try std.testing.expectEqual(p.binary.items[0], 0b00000000000100000000000010010011);
+        try std.testing.expectEqualSlices(
+            u8,
+            p.binary.items,
+            &[_]u8{ 0b10010011, 0b00000000, 0b00010000, 0b00000000 },
+        );
     }
     {
         var p = RiscvParser.init(
@@ -114,6 +118,10 @@ test RiscvParser {
         , std.testing.allocator);
         defer p.deinit();
         try p.parse();
-        try std.testing.expectEqual(p.binary.items[0], 0b00000000000100000000000010010011);
+        try std.testing.expectEqualSlices(
+            u8,
+            p.binary.items,
+            &[_]u8{ 0b10010011, 0b00000000, 0b00010000, 0b00000000 },
+        );
     }
 }

@@ -30,7 +30,7 @@ pub fn Parser(comptime instruction_set: []const type) type {
         buf: []const u8,
         tokenizer: Tokenizer,
         err_msg: ?ErrorMsg = null,
-        binary: std.ArrayListUnmanaged(u32) = .{},
+        binary: std.ArrayListUnmanaged(u8) = .{},
 
         pub fn init(buf: []const u8, allocator: Allocator) Self {
             return Self{
@@ -129,7 +129,8 @@ pub fn Parser(comptime instruction_set: []const type) type {
                             }
                         }
 
-                        try self.binary.append(self.alloc, Instruction.toBytes(Instr, i));
+                        const bytes = Instruction.toBytes(Instr, i);
+                        try self.binary.appendSlice(self.alloc, std.mem.asBytes(&bytes));
                     }
                 }
                 if (!instruction_found) return self.fail("Unknown instruction: {s}", .{instruction_mneumonic});
