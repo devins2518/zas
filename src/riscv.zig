@@ -64,11 +64,14 @@ const RiscvInstruction = Instruction.Class(Instruction, struct {
     comptime bit_size: usize = 32,
 });
 
-const AluIType = Instruction.Class(RiscvInstruction, struct {
+// I Type Instructions
+const IType = Instruction.Class(RiscvInstruction, struct {
     comptime opcode: u7 = 0b0010011,
-    comptime funct3: u3 = undefined,
+});
+
+const AluIType = Instruction.Class(IType, struct {
     comptime layout: []const []const u8 = &.{ "imm12", "rs1", "funct3", "rd", "opcode" },
-    comptime read_operands: []const []const u8 = &.{ "rs1", "imm12" },
+    comptime read_operands: []const []const u8 = &.{"rs1"},
     comptime write_operands: []const []const u8 = &.{"rd"},
     comptime parse_style: []const u8 = "{name} {rd}, {rs1}, {imm12}",
     rd: Register,
@@ -89,6 +92,125 @@ const Sltiu = CreateAluIType("sltiu", 0b011);
 const Xori = CreateAluIType("xori", 0b100);
 const Ori = CreateAluIType("ori", 0b110);
 const Andi = CreateAluIType("andi", 0b111);
+
+const ShiftIType = Instruction.Class(IType, struct {
+    comptime layout: []const []const u8 = &.{ "imm7", "shamt", "rs1", "funct3", "rd", "opcode" },
+    comptime read_operands: []const []const u8 = &.{"rs1"},
+    comptime write_operands: []const []const u8 = &.{"rd"},
+    comptime parse_style: []const u8 = "{name} {rd}, {rs1}, {shamt}",
+    rd: Register,
+    rs1: Register,
+    shamt: u5,
+});
+
+fn CreateShiftIType(comptime name: []const u8, comptime funct3: u3, comptime imm7: u7) type {
+    return Instruction.Class(ShiftIType, struct {
+        comptime name: []const u8 = name,
+        comptime funct3: u3 = funct3,
+        comptime imm7: u7 = imm7,
+    });
+}
+
+const Slli = CreateShiftIType("slli", 0b001, 0b0000000);
+const Srli = CreateShiftIType("srli", 0b101, 0b0000000);
+const Srai = CreateShiftIType("srai", 0b101, 0b0100000);
+
+// U Type Instructions
+const UType = Instruction.Class(RiscvInstruction, struct {
+    comptime layout: []const []const u8 = &.{ "imm20", "rd", "opcode" },
+    comptime read_operands: []const []const u8 = &.{},
+    comptime write_operands: []const []const u8 = &.{"rd"},
+    comptime parse_style: []const u8 = "{name} {rd} {shamt}",
+    rd: Register,
+    imm20: u20,
+});
+
+fn CreateUType(comptime name: []const u8, comptime opcode: u7) type {
+    return Instruction.Class(UType, struct {
+        comptime name: []const u8 = name,
+        comptime opcode: u7 = opcode,
+    });
+}
+
+const Lui = CreateUType("lui", 0b0110111);
+const Auipc = CreateUType("auipc", 0b0010111);
+
+// R Type Instructions
+const RType = Instruction.Class(RiscvInstruction, struct {
+    comptime opcode: u7 = 0b0110011,
+    comptime layout: []const []const u8 = &.{ "imm7", "rs2", "rs1", "funct3", "rd", "opcode" },
+    comptime read_operands: []const []const u8 = &.{ "rs1", "rs2" },
+    comptime write_operands: []const []const u8 = &.{"rd"},
+    comptime parse_style: []const u8 = "{name} {rd}, {rs1}, {rs2}",
+    rd: Register,
+    rs1: Register,
+    rs2: Register,
+});
+
+fn CreateRType(comptime name: []const u8, comptime funct3: u3, comptime imm7: u7) type {
+    return Instruction.Class(RType, struct {
+        comptime name: []const u8 = name,
+        comptime funct3: u3 = funct3,
+        comptime imm7: u7 = imm7,
+    });
+}
+
+const Add = CreateRType("add", 0b000, 0b0000000);
+const Sub = CreateRType("sub", 0b000, 0b0100000);
+const Sll = CreateRType("sll", 0b001, 0b0000000);
+const Slt = CreateRType("slt", 0b010, 0b0000000);
+const Sltu = CreateRType("sltu", 0b011, 0b0000000);
+const Xor = CreateRType("xor", 0b100, 0b0000000);
+const Srl = CreateRType("srl", 0b101, 0b0000000);
+const Sra = CreateRType("sra", 0b101, 0b0100000);
+const Or = CreateRType("or", 0b110, 0b0000000);
+const And = CreateRType("and", 0b111, 0b0000000);
+
+// J Type Instructions
+const Jal = Instruction.Class(RiscvInstruction, struct {
+    comptime opcode: u7 = 0b1101111,
+    comptime layout: []const []const u8 = &.{ "imm20[20]", "imm20[10:1]", "imm20[11]", "imm20[19:12]", "rd", "opcode" },
+    comptime read_operands: []const []const u8 = &.{},
+    comptime write_operands: []const []const u8 = &.{"rd"},
+    comptime parse_style: []const u8 = "{name} {rd}, {imm20}",
+    rd: Register,
+});
+const Jalr = Instruction.Class(RiscvInstruction, struct {
+    comptime opcode: u7 = 0b1100111,
+    comptime layout: []const []const u8 = &.{ "imm12", "rs1", "funct3", "rd", "opcode" },
+    comptime read_operands: []const []const u8 = &.{"rs1"},
+    comptime write_operands: []const []const u8 = &.{},
+    comptime parse_style: []const u8 = "{name} {rd}, {rs1}, {imm12}",
+    rd: Register,
+    rs1: Register,
+    imm12: i12,
+});
+
+// B Type Instructions
+const BType = Instruction.Class(RiscvInstruction, struct {
+    comptime opcode: u7 = 0b1100011,
+    comptime layout: []const []const u8 = &.{ "imm12[12]", "imm12[10:5]", "rs2", "rs1", "funct3", "imm12[11]", "imm12[4:1]", "opcode" },
+    comptime read_operands: []const []const u8 = &.{ "rs1", "rs2" },
+    comptime write_operands: []const []const u8 = &.{},
+    comptime parse_style: []const u8 = "{name} {rs1}, {rs2}, {imm12}",
+    rs1: Register,
+    rs2: Register,
+    imm12: i12,
+});
+
+fn CreateBType(comptime name: []const u8, comptime funct3: u3) type {
+    Instruction.Class(BType, struct {
+        comptime name: []const u8 = name,
+        comptime funct3: u3 = funct3,
+    });
+}
+
+const Beq = CreateBType("beq", 0b000);
+const Bne = CreateBType("bne", 0b001);
+const Blt = CreateBType("blt", 0b000);
+const Bge = CreateBType("bge", 0b101);
+const Bltu = CreateBType("bltu", 0b110);
+const Bgeu = CreateBType("bgeu", 0b111);
 
 test AluIType {
     try std.testing.expect(Instruction.instructionHasProperForm(Addi));
