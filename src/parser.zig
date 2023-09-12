@@ -84,10 +84,19 @@ pub fn Parser(comptime instruction_set: []const type) type {
                                     switch (field_type_info) {
                                         .Enum => {
                                             const variant = try self.expectToken(&token_idx, .ident);
-                                            if (std.meta.stringToEnum(FieldType, variant)) |e|
-                                                @field(i, field_name) = e
-                                            else
-                                                return self.fail("Unknown {s} variant: {s}", .{ field_name, variant });
+                                            if (@hasDecl(FieldType, "alias")) {
+                                                if (FieldType.alias(variant)) |e|
+                                                    @field(i, field_name) = e
+                                                else if (std.meta.stringToEnum(FieldType, variant)) |e|
+                                                    @field(i, field_name) = e
+                                                else
+                                                    return self.fail("Unknown {s} variant: {s}", .{ field_name, variant });
+                                            } else {
+                                                if (std.meta.stringToEnum(FieldType, variant)) |e|
+                                                    @field(i, field_name) = e
+                                                else
+                                                    return self.fail("Unknown {s} variant: {s}", .{ field_name, variant });
+                                            }
                                         },
                                         .Pointer => |ptr_info| {
                                             if (ptr_info.size != .Many and ptr_info.child != u8)

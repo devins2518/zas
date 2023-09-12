@@ -26,7 +26,11 @@ pub fn main() !void {
         return e;
     };
 
-    try std.testing.expectEqualSlices(u32, parser.binary.items, &[_]u32{0b00000000110000000000000000010011});
+    try std.testing.expectEqualSlices(
+        u32,
+        parser.binary.items,
+        &[_]u32{ 0b00000000110000000000000000010011, 0b00000000110000000000000010010011 },
+    );
 }
 
 test {

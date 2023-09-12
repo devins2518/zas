@@ -2,6 +2,7 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const Instruction = @import("Instruction.zig");
 const Operand = Instruction.Operand;
+const ComptimeStringMap = std.ComptimeStringMap;
 
 // TODO: support register aliases
 const Register = enum(u5) {
@@ -9,6 +10,45 @@ const Register = enum(u5) {
     x0,  x1,  x2,  x3,  x4,  x5,  x6,  x7,  x8,  x9,  x10, x11, x12, x13, x14, x15,
     x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, x30, x31,
     // zig fmt: on
+
+    pub fn alias(s: []const u8) ?Register {
+        const csm = ComptimeStringMap(Register, [33]struct { []const u8, Register }{
+            .{ "zero", .x0 },
+            .{ "ra", .x1 },
+            .{ "sp", .x2 },
+            .{ "gp", .x3 },
+            .{ "tp", .x4 },
+            .{ "t0", .x5 },
+            .{ "t1", .x6 },
+            .{ "t2", .x7 },
+            .{ "s0", .x8 },
+            .{ "fp", .x8 },
+            .{ "s1", .x9 },
+            .{ "a0", .x10 },
+            .{ "a1", .x11 },
+            .{ "a2", .x12 },
+            .{ "a3", .x13 },
+            .{ "a4", .x14 },
+            .{ "a5", .x15 },
+            .{ "a6", .x16 },
+            .{ "a7", .x17 },
+            .{ "s2", .x18 },
+            .{ "s3", .x19 },
+            .{ "s4", .x20 },
+            .{ "s5", .x21 },
+            .{ "s6", .x22 },
+            .{ "s7", .x23 },
+            .{ "s8", .x24 },
+            .{ "s9", .x25 },
+            .{ "s10", .x26 },
+            .{ "s11", .x27 },
+            .{ "t3", .x28 },
+            .{ "t4", .x29 },
+            .{ "t5", .x30 },
+            .{ "t6", .x31 },
+        });
+        return csm.get(s);
+    }
 };
 
 pub const InstructionSet: []const type = &.{
@@ -55,4 +95,25 @@ test AluIType {
     try std.testing.expect(Instruction.instructionHasProperForm(Addi));
     const i = Addi{ .rd = .x0, .rs1 = .x0, .imm12 = 12 };
     try std.testing.expect(Instruction.toBytes(Addi, i) == 0b00000000110000000000000000010011);
+}
+
+test RiscvParser {
+    {
+        var p = RiscvParser.init(
+            \\addi x1, x0, 1
+            \\
+        , std.testing.allocator);
+        defer p.deinit();
+        try p.parse();
+        try std.testing.expectEqual(p.binary.items[0], 0b00000000000100000000000010010011);
+    }
+    {
+        var p = RiscvParser.init(
+            \\addi ra, zero, 1
+            \\
+        , std.testing.allocator);
+        defer p.deinit();
+        try p.parse();
+        try std.testing.expectEqual(p.binary.items[0], 0b00000000000100000000000010010011);
+    }
 }
